@@ -26,12 +26,15 @@ export default function Learn({ progress, updateProgress }) {
 
   // Current lesson's letters + 1-2 interleaved review from previous lessons
   const cards = useMemo(() => {
+    const lessons = getLessons(stage)
+    const currentLesson = lessons?.[Number(lessonIdx)]
+    if (!currentLesson) return []
     const previousLetters = getPreviousLetters(stage, Number(lessonIdx))
     const reviewCount = Math.min(2, previousLetters.length)
     const shuffledPrev = [...previousLetters].sort(() => Math.random() - 0.5)
     const reviewCards = shuffledPrev.slice(0, reviewCount)
-    return [...lesson.letters, ...reviewCards]
-  }, [stage, lessonIdx, lesson])
+    return [...currentLesson.letters, ...reviewCards]
+  }, [stage, lessonIdx])
 
   const letter = cards[currentIndex]
   const isLast = currentIndex === cards.length - 1

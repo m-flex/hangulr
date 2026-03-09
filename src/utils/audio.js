@@ -46,8 +46,34 @@ let currentAudio = null
 // Cache: text → blob URL
 const audioCache = new Map()
 
+// Convert bare Hangul jamo to pronounceable syllables for TTS
+// Vowel jamo (ㅏ-ㅣ) → syllable with silent ㅇ (아-이)
+// Consonant jamo (ㄱ-ㅎ) → syllable with ㅡ (그-흐)
+const CONS_TO_INITIAL = {
+  'ㄱ':0,'ㄲ':1,'ㄴ':2,'ㄷ':3,'ㄸ':4,'ㄹ':5,'ㅁ':6,'ㅂ':7,'ㅃ':8,
+  'ㅅ':9,'ㅆ':10,'ㅇ':11,'ㅈ':12,'ㅉ':13,'ㅊ':14,'ㅋ':15,'ㅌ':16,'ㅍ':17,'ㅎ':18
+}
+
+function normalizeForTTS(text) {
+  return text.replace(/[\u3131-\u3163]/g, ch => {
+    const code = ch.charCodeAt(0)
+    // Vowel jamo: ㅏ(0x314F) - ㅣ(0x3163) → compose with ㅇ initial
+    if (code >= 0x314F && code <= 0x3163) {
+      const medialIdx = code - 0x314F
+      return String.fromCharCode(0xAC00 + (11 * 21 + medialIdx) * 28)
+    }
+    // Consonant jamo: compose with ㅡ (medial index 18)
+    const initialIdx = CONS_TO_INITIAL[ch]
+    if (initialIdx !== undefined) {
+      return String.fromCharCode(0xAC00 + (initialIdx * 21 + 18) * 28)
+    }
+    return ch
+  })
+}
+
 export async function speak(text, rate = 0.75) {
   if (!isAudioEnabled()) return
+  text = normalizeForTTS(text)
 
   // Stop anything currently playing
   if (currentAudio) {

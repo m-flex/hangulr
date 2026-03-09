@@ -242,14 +242,14 @@ export default function Quiz({ progress, updateProgress }) {
           >
             <RotateCcw size={16} /> Try Again
           </motion.button>
-          {passed && hasNextLesson ? (
-            <Link to={`/learn/${stage.id}/${lessonNum + 1}`}>
+          {passed ? (
+            <Link to={`/draw/${stage.id}/${lessonIdx}`}>
               <motion.button
                 whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl
                   bg-primary-600 hover:bg-primary-500 text-white border-0 cursor-pointer font-medium w-full"
               >
-                Next Lesson →
+                Practice Drawing →
               </motion.button>
             </Link>
           ) : (
