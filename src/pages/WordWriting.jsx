@@ -27,11 +27,11 @@ function splitSyllables(word) {
 }
 
 export default function WordWriting({ progress, updateProgress }) {
-  const [words] = useState(() => shuffle(WORDS).slice(0, TOTAL_WORDS))
+  const [words, setWords] = useState(() => shuffle(WORDS).slice(0, TOTAL_WORDS))
   const [wordIdx, setWordIdx] = useState(0)
   const [syllableIdx, setSyllableIdx] = useState(0)
   const [result, setResult] = useState(null)
-  const [wordResults, setWordResults] = useState([]) // per-word scores
+  const [wordResults, setWordResults] = useState([])
   const [done, setDone] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const canvasRef = useRef(null)
@@ -294,7 +294,7 @@ export default function WordWriting({ progress, updateProgress }) {
         </div>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={() => window.location.reload()}
+            onClick={() => { setWords(shuffle(WORDS).slice(0, TOTAL_WORDS)); setWordIdx(0); setSyllableIdx(0); setResult(null); setWordResults([]); setDone(false) }}
             className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-500 text-white border-0 cursor-pointer font-medium">
             <RotateCcw size={16} /> New Words
           </motion.button>
