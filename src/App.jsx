@@ -27,7 +27,6 @@ import DailyChallenge from './pages/DailyChallenge'
 import CheatSheet from './pages/CheatSheet'
 import ListeningDrill from './pages/ListeningDrill'
 import AchievementToast from './components/AchievementToast'
-import VoiceCheck from './components/VoiceCheck'
 
 export default function App() {
   const [progress, setProgress] = useState(() => loadProgress())
@@ -86,7 +85,6 @@ export default function App() {
         </AnimatePresence>
       </main>
       <AchievementToast achievement={toast} />
-      <VoiceCheck />
     </div>
   )
 }
