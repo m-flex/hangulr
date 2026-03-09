@@ -70,18 +70,20 @@ export default function WordWriting({ progress, updateProgress }) {
     ctx.fillText(ch, w / 2, h / 2)
   }
 
-  const clearCanvas = () => {
+  const clearCanvas = (char) => {
     const canvas = canvasRef.current
     const dCanvas = drawCanvasRef.current
     if (!canvas || !dCanvas) return
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
     dCanvas.getContext('2d').clearRect(0, 0, dCanvas.width, dCanvas.height)
-    drawGuide(canvas.getContext('2d'), currentChar, canvas.width, canvas.height)
+    drawGuide(canvas.getContext('2d'), char || currentChar, canvas.width, canvas.height)
     setResult(null)
   }
 
   useEffect(() => {
-    clearCanvas()
+    // Pass the current char explicitly to avoid stale closure
+    const syls = splitSyllables(words[wordIdx].word)
+    clearCanvas(syls[syllableIdx])
   }, [syllableIdx, wordIdx])
 
   const startDraw = (e) => {
@@ -250,7 +252,7 @@ export default function WordWriting({ progress, updateProgress }) {
 
         {!passed ? (
           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={handleCheck} disabled={!canvasRef.current || result}
+            onClick={handleCheck} disabled={!canvasRef.current || passed}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-40 text-white border-0 cursor-pointer font-medium text-sm">
             Check
           </motion.button>
