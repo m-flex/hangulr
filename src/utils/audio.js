@@ -2,9 +2,8 @@
  * Audio utilities for Hangulr.
  *
  * Korean TTS strategy:
- *   1. Google Translate TTS via <audio> element (works cross-origin since
- *      media requests aren't subject to CORS the way fetch is).
- *   2. Web Speech API fallback if Google TTS fails.
+ *   1. Google Translate TTS via direct <audio> element (no fetch, no CORS).
+ *   2. Web Speech API fallback.
  */
 
 // ── Audio enabled check ──────────────────────────────────────────
@@ -19,19 +18,43 @@ function isAudioEnabled() {
   return true
 }
 
+// ── Pre-load Korean voice for Web Speech API ─────────────────────
+
+let koVoice = null
+let voicesLoaded = false
+
+function loadVoices() {
+  if (typeof speechSynthesis === 'undefined') return
+  const voices = speechSynthesis.getVoices()
+  koVoice =
+    voices.find(v => v.lang === 'ko-KR') ||
+    voices.find(v => v.lang.startsWith('ko')) ||
+    null
+  voicesLoaded = voices.length > 0
+}
+
+// Voices load asynchronously in most browsers
+if (typeof speechSynthesis !== 'undefined') {
+  loadVoices()
+  speechSynthesis.addEventListener('voiceschanged', loadVoices)
+}
+
 // ── Korean TTS ──────────────────────────────────────────────────
 
 let currentAudio = null
 
-// Cache: text → blob URL (avoids repeated network requests)
-const audioCache = new Map()
-
 function ttsUrl(text) {
   const encoded = encodeURIComponent(text)
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=${encoded}`
+  // client=gtx is more permissive for cross-origin requests
+  return `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=ko&q=${encoded}`
 }
 
-export async function speak(text, rate = 0.75) {
+/**
+ * Play Korean TTS for the given text.
+ * Tries Google Translate TTS first (direct audio element, no CORS needed),
+ * then falls back to Web Speech API.
+ */
+export function speak(text, rate = 0.75) {
   if (!isAudioEnabled()) return
 
   // Stop anything currently playing
@@ -44,49 +67,34 @@ export async function speak(text, rate = 0.75) {
     speechSynthesis.cancel()
   }
 
-  try {
-    let blobUrl = audioCache.get(text)
+  // Try Google TTS via direct audio element.
+  // <audio> elements can play cross-origin media without CORS —
+  // do NOT set crossOrigin, do NOT use fetch.
+  const audio = new Audio()
+  currentAudio = audio
 
-    if (!blobUrl) {
-      // Fetch the audio as a blob so we can cache it and control playback rate.
-      // Using no-cors mode: the response is opaque but we can still play it
-      // by constructing a blob URL. If fetch fails, fall through to the
-      // Audio-element-with-src approach below.
-      const res = await fetch(ttsUrl(text))
-      if (!res.ok) throw new Error('fetch failed')
-      const blob = await res.blob()
-      blobUrl = URL.createObjectURL(blob)
-      audioCache.set(text, blobUrl)
-    }
+  const playbackRate = Math.max(0.5, Math.min(rate / 0.75, 2))
 
-    const audio = new Audio(blobUrl)
-    audio.playbackRate = Math.max(0.5, Math.min(rate / 0.75, 2))
-    currentAudio = audio
-    await audio.play()
-  } catch {
-    // Fetch didn't work (CORS, network, etc.)
-    // Try playing the URL directly as an <audio> src — browsers often allow
-    // cross-origin media even when fetch is blocked.
-    try {
-      const audio = new Audio(ttsUrl(text))
-      audio.crossOrigin = 'anonymous'
-      currentAudio = audio
-      await audio.play()
-    } catch {
-      // Last resort: Web Speech API
-      speakFallback(text, rate)
-    }
+  audio.oncanplaythrough = () => {
+    audio.playbackRate = playbackRate
+    audio.play().catch(() => {})
   }
+
+  audio.onerror = () => {
+    // Google TTS failed — fall back to Web Speech API
+    currentAudio = null
+    speakFallback(text, rate)
+  }
+
+  audio.src = ttsUrl(text)
+  audio.load()
 }
 
 function speakFallback(text, rate) {
   if (typeof speechSynthesis === 'undefined') return
 
-  const voices = speechSynthesis.getVoices()
-  const koVoice =
-    voices.find(v => v.lang === 'ko-KR') ||
-    voices.find(v => v.lang.startsWith('ko')) ||
-    null
+  // Ensure voices are loaded
+  if (!voicesLoaded) loadVoices()
 
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'ko-KR'
