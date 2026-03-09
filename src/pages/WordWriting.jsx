@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, RotateCcw, ChevronRight, Volume2, CheckCircle } from 'lucide-react'
+import { ArrowLeft, RotateCcw, ChevronRight, Volume2, CheckCircle, Play } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { WORDS } from '../data/hangul'
+import { getStrokes } from '../data/strokes'
 import { addXp, recordSession } from '../store/progress'
 import { scoreDrawing } from '../utils/drawRecognition'
 import { speak, playCorrect, playWrong } from '../utils/audio'
@@ -32,10 +33,12 @@ export default function WordWriting({ progress, updateProgress }) {
   const [result, setResult] = useState(null)
   const [wordResults, setWordResults] = useState([]) // per-word scores
   const [done, setDone] = useState(false)
+  const [isAnimating, setIsAnimating] = useState(false)
   const canvasRef = useRef(null)
   const drawCanvasRef = useRef(null)
   const isDrawingRef = useRef(false)
   const lastPosRef = useRef({ x: 0, y: 0 })
+  const animFrameRef = useRef(null)
 
   const word = words[wordIdx]
   const syllables = splitSyllables(word.word)
@@ -107,6 +110,137 @@ export default function WordWriting({ progress, updateProgress }) {
   }
 
   const stopDraw = () => { isDrawingRef.current = false }
+
+  // Cleanup animation on unmount
+  useEffect(() => {
+    return () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current) }
+  }, [])
+
+  const animateStroke = () => {
+    if (isAnimating) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const strokes = getStrokes(currentChar)
+    if (!strokes) return
+
+    setIsAnimating(true)
+    clearCanvas()
+
+    const w = canvas.width, h = canvas.height
+    const ctx = canvas.getContext('2d')
+    const pad = 15
+
+    const toPixel = ([nx, ny]) => [pad + nx * (w - 2 * pad), pad + ny * (h - 2 * pad)]
+
+    const strokeLengths = strokes.map(pts => {
+      const px = pts.map(toPixel)
+      let len = 0
+      for (let i = 1; i < px.length; i++) {
+        len += Math.hypot(px[i][0] - px[i - 1][0], px[i][1] - px[i - 1][1])
+      }
+      return len
+    })
+
+    const msPerStroke = 350
+    const pauseBetween = 120
+    let strokeIdx = 0
+    let strokeStart = null
+    const completedStrokes = []
+
+    const drawCompleted = () => {
+      ctx.clearRect(0, 0, w, h)
+      drawGuide(ctx, currentChar, w, h)
+      for (const points of completedStrokes) {
+        ctx.strokeStyle = '#60a5fa'
+        ctx.lineWidth = 8
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        ctx.moveTo(points[0][0], points[0][1])
+        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1])
+        ctx.stroke()
+      }
+    }
+
+    const animate = (now) => {
+      if (strokeIdx >= strokes.length) {
+        drawCompleted()
+        setTimeout(() => { setIsAnimating(false); clearCanvas() }, 700)
+        return
+      }
+
+      if (strokeStart === null) strokeStart = now
+      const elapsed = now - strokeStart
+      const progress = Math.min(elapsed / msPerStroke, 1)
+
+      const pixelPts = strokes[strokeIdx].map(toPixel)
+      const totalLen = strokeLengths[strokeIdx]
+      const targetLen = progress * totalLen
+
+      drawCompleted()
+
+      ctx.strokeStyle = '#60a5fa'
+      ctx.lineWidth = 8
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      ctx.moveTo(pixelPts[0][0], pixelPts[0][1])
+
+      let accumulated = 0
+      for (let i = 1; i < pixelPts.length; i++) {
+        const segLen = Math.hypot(pixelPts[i][0] - pixelPts[i - 1][0], pixelPts[i][1] - pixelPts[i - 1][1])
+        if (accumulated + segLen <= targetLen) {
+          ctx.lineTo(pixelPts[i][0], pixelPts[i][1])
+          accumulated += segLen
+        } else {
+          const t = segLen > 0 ? (targetLen - accumulated) / segLen : 0
+          ctx.lineTo(
+            pixelPts[i - 1][0] + (pixelPts[i][0] - pixelPts[i - 1][0]) * t,
+            pixelPts[i - 1][1] + (pixelPts[i][1] - pixelPts[i - 1][1]) * t,
+          )
+          break
+        }
+      }
+      ctx.stroke()
+
+      // Pen tip dot
+      if (progress < 1) {
+        let tipAccum = 0, tipX = pixelPts[0][0], tipY = pixelPts[0][1]
+        for (let i = 1; i < pixelPts.length; i++) {
+          const segLen = Math.hypot(pixelPts[i][0] - pixelPts[i - 1][0], pixelPts[i][1] - pixelPts[i - 1][1])
+          if (tipAccum + segLen <= targetLen) {
+            tipX = pixelPts[i][0]; tipY = pixelPts[i][1]; tipAccum += segLen
+          } else {
+            const t = segLen > 0 ? (targetLen - tipAccum) / segLen : 0
+            tipX = pixelPts[i - 1][0] + (pixelPts[i][0] - pixelPts[i - 1][0]) * t
+            tipY = pixelPts[i - 1][1] + (pixelPts[i][1] - pixelPts[i - 1][1]) * t
+            break
+          }
+        }
+        ctx.fillStyle = '#93c5fd'
+        ctx.beginPath()
+        ctx.arc(tipX, tipY, 5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+
+      if (progress < 1) {
+        animFrameRef.current = requestAnimationFrame(animate)
+      } else {
+        completedStrokes.push(pixelPts)
+        strokeIdx++
+        strokeStart = null
+        if (strokeIdx < strokes.length) {
+          setTimeout(() => { animFrameRef.current = requestAnimationFrame(animate) }, pauseBetween)
+        } else {
+          drawCompleted()
+          setTimeout(() => { setIsAnimating(false); clearCanvas() }, 700)
+        }
+      }
+    }
+
+    animFrameRef.current = requestAnimationFrame(animate)
+  }
 
   const handleCheck = () => {
     const res = scoreDrawing(drawCanvasRef.current, currentChar)
@@ -215,6 +349,19 @@ export default function WordWriting({ progress, updateProgress }) {
         <div className="text-xs text-slate-600 mt-1">
           Syllable {syllableIdx + 1} of {syllables.length}: <span className="hangul text-slate-400">{currentChar}</span>
         </div>
+      </div>
+
+      {/* Stroke guide button */}
+      <div className="flex justify-center mb-3">
+        <button
+          onClick={animateStroke}
+          disabled={isAnimating}
+          className="text-xs px-3 py-1 rounded-full border cursor-pointer transition-colors
+            bg-primary-600/20 border-primary-500/30 text-primary-400 hover:bg-primary-600/30 disabled:opacity-40"
+        >
+          <Play size={10} className="inline mr-1" />
+          {isAnimating ? 'Playing...' : 'Watch Stroke Order'}
+        </button>
       </div>
 
       {/* Canvas */}

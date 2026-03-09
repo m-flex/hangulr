@@ -295,6 +295,135 @@ const STROKE_DATA = {
   ],
 }
 
+// ── Syllable decomposition & composed stroke generation ─────────
+
+const INITIAL_JAMO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'.split('')
+const MEDIAL_JAMO = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'.split('')
+const FINAL_JAMO = [
+  '', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ',
+  'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ',
+]
+
+// Vertical vowels: initial left, vowel right
+const VERTICAL_MEDIALS = new Set([0,1,2,3,4,5,6,7,20]) // ㅏㅐㅑㅒㅓㅔㅕㅖㅣ
+// Horizontal vowels: initial top, vowel bottom
+const HORIZONTAL_MEDIALS = new Set([8,12,13,17,18]) // ㅗㅛㅜㅠㅡ
+// Compound vowels (ㅘㅙㅚㅝㅞㅟㅢ): initial top-left, vowel wraps
+// indices 9,10,11,14,15,16,19
+
+/**
+ * Decompose a Hangul syllable character into its jamo components.
+ * Returns { initial, medial, final, medialIdx } or null if not a syllable.
+ */
+function decompose(char) {
+  const code = char.charCodeAt(0) - 0xAC00
+  if (code < 0 || code >= 11172) return null
+  const initialIdx = Math.floor(code / (21 * 28))
+  const medialIdx = Math.floor((code % (21 * 28)) / 28)
+  const finalIdx = code % 28
+  return {
+    initial: INITIAL_JAMO[initialIdx],
+    medial: MEDIAL_JAMO[medialIdx],
+    final: finalIdx > 0 ? FINAL_JAMO[finalIdx] : null,
+    medialIdx,
+  }
+}
+
+/**
+ * Transform stroke points from 0–1 space into a sub-rectangle.
+ */
+function transformStrokes(strokes, rect) {
+  return strokes.map(pts =>
+    pts.map(([x, y]) => [rect.x + x * rect.w, rect.y + y * rect.h])
+  )
+}
+
+/**
+ * Get layout rectangles for each jamo position in a syllable block.
+ */
+function getLayout(medialIdx, hasFinal) {
+  if (VERTICAL_MEDIALS.has(medialIdx)) {
+    // Left-right layout
+    if (hasFinal) {
+      return {
+        initial: { x: 0.03, y: 0.03, w: 0.47, h: 0.55 },
+        medial:  { x: 0.52, y: 0.03, w: 0.45, h: 0.55 },
+        final:   { x: 0.03, y: 0.62, w: 0.94, h: 0.35 },
+      }
+    }
+    return {
+      initial: { x: 0.03, y: 0.03, w: 0.47, h: 0.94 },
+      medial:  { x: 0.52, y: 0.03, w: 0.45, h: 0.94 },
+    }
+  }
+
+  if (HORIZONTAL_MEDIALS.has(medialIdx)) {
+    // Top-bottom layout
+    if (hasFinal) {
+      return {
+        initial: { x: 0.1, y: 0.03, w: 0.8, h: 0.34 },
+        medial:  { x: 0.03, y: 0.38, w: 0.94, h: 0.26 },
+        final:   { x: 0.03, y: 0.66, w: 0.94, h: 0.31 },
+      }
+    }
+    return {
+      initial: { x: 0.1, y: 0.03, w: 0.8, h: 0.47 },
+      medial:  { x: 0.03, y: 0.52, w: 0.94, h: 0.45 },
+    }
+  }
+
+  // Compound vowels — treat like vertical (initial top-left, vowel right/bottom)
+  if (hasFinal) {
+    return {
+      initial: { x: 0.03, y: 0.03, w: 0.42, h: 0.55 },
+      medial:  { x: 0.03, y: 0.03, w: 0.94, h: 0.58 },
+      final:   { x: 0.03, y: 0.62, w: 0.94, h: 0.35 },
+    }
+  }
+  return {
+    initial: { x: 0.03, y: 0.03, w: 0.42, h: 0.94 },
+    medial:  { x: 0.03, y: 0.03, w: 0.94, h: 0.94 },
+  }
+}
+
+/**
+ * Generate strokes for a composed Hangul syllable by decomposing it
+ * into jamo, looking up each jamo's strokes, and positioning them
+ * within the syllable block layout.
+ */
+function getSyllableStrokes(char) {
+  const parts = decompose(char)
+  if (!parts) return null
+
+  const layout = getLayout(parts.medialIdx, !!parts.final)
+  const allStrokes = []
+
+  // Initial consonant strokes
+  const initStrokes = STROKE_DATA[parts.initial]
+  if (initStrokes) {
+    allStrokes.push(...transformStrokes(initStrokes, layout.initial))
+  }
+
+  // Medial vowel strokes
+  const medStrokes = STROKE_DATA[parts.medial]
+  if (medStrokes) {
+    allStrokes.push(...transformStrokes(medStrokes, layout.medial))
+  }
+
+  // Final consonant strokes (if present)
+  if (parts.final && layout.final) {
+    const finStrokes = STROKE_DATA[parts.final]
+    if (finStrokes) {
+      allStrokes.push(...transformStrokes(finStrokes, layout.final))
+    }
+  }
+
+  return allStrokes.length > 0 ? allStrokes : null
+}
+
 export function getStrokes(char) {
-  return STROKE_DATA[char] || null
+  // Direct jamo lookup first
+  if (STROKE_DATA[char]) return STROKE_DATA[char]
+  // Try syllable decomposition
+  return getSyllableStrokes(char)
 }
