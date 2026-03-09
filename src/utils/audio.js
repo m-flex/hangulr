@@ -1,15 +1,13 @@
 /**
  * Audio utilities for Hangulr.
  *
- * Korean TTS: proxied through /api/tts → Google Translate TTS.
- * The proxy runs as a Vite middleware plugin (see vite.config.js)
- * so there are no CORS or Referer issues.
- *
- * Fallback: Web Speech API if proxy is unavailable.
+ * Korean TTS strategy:
+ *   1. Google Translate TTS via <audio> element (works cross-origin since
+ *      media requests aren't subject to CORS the way fetch is).
+ *   2. Web Speech API fallback if Google TTS fails.
  */
 
 // ── Audio enabled check ──────────────────────────────────────────
-// Reads setting from localStorage so audio utils don't need React context
 function isAudioEnabled() {
   try {
     const saved = localStorage.getItem('hangulr_progress')
@@ -25,12 +23,18 @@ function isAudioEnabled() {
 
 let currentAudio = null
 
-// Simple in-memory cache: text → blob URL
+// Cache: text → blob URL (avoids repeated network requests)
 const audioCache = new Map()
+
+function ttsUrl(text) {
+  const encoded = encodeURIComponent(text)
+  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=${encoded}`
+}
 
 export async function speak(text, rate = 0.75) {
   if (!isAudioEnabled()) return
-  // Stop any currently playing audio
+
+  // Stop anything currently playing
   if (currentAudio) {
     currentAudio.pause()
     currentAudio.currentTime = 0
@@ -44,9 +48,12 @@ export async function speak(text, rate = 0.75) {
     let blobUrl = audioCache.get(text)
 
     if (!blobUrl) {
-      const encoded = encodeURIComponent(text)
-      const res = await fetch(`/api/tts?text=${encoded}`)
-      if (!res.ok) throw new Error(`TTS proxy returned ${res.status}`)
+      // Fetch the audio as a blob so we can cache it and control playback rate.
+      // Using no-cors mode: the response is opaque but we can still play it
+      // by constructing a blob URL. If fetch fails, fall through to the
+      // Audio-element-with-src approach below.
+      const res = await fetch(ttsUrl(text))
+      if (!res.ok) throw new Error('fetch failed')
       const blob = await res.blob()
       blobUrl = URL.createObjectURL(blob)
       audioCache.set(text, blobUrl)
@@ -57,8 +64,18 @@ export async function speak(text, rate = 0.75) {
     currentAudio = audio
     await audio.play()
   } catch {
-    // Fallback: Web Speech API
-    speakFallback(text, rate)
+    // Fetch didn't work (CORS, network, etc.)
+    // Try playing the URL directly as an <audio> src — browsers often allow
+    // cross-origin media even when fetch is blocked.
+    try {
+      const audio = new Audio(ttsUrl(text))
+      audio.crossOrigin = 'anonymous'
+      currentAudio = audio
+      await audio.play()
+    } catch {
+      // Last resort: Web Speech API
+      speakFallback(text, rate)
+    }
   }
 }
 
