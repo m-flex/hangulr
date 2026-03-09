@@ -1,0 +1,16 @@
+{
+  "name": "Hangulr — Learn Korean Hangul",
+  "short_name": "Hangulr",
+  "description": "Master the Korean alphabet step by step",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "./icon-192.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
