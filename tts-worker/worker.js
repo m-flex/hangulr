@@ -18,12 +18,14 @@ export default {
     }
 
     const encoded = encodeURIComponent(text)
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=${encoded}`
+    const speaker = url.searchParams.get('speaker') || 'kyuri'
+    const speed = url.searchParams.get('speed') || '0'
+    const ttsUrl = `https://dict.naver.com/api/nvoice?service=dictionary&speech_fmt=mp3&text=${encoded}&speaker=${speaker}&speed=${speed}`
 
     const response = await fetch(ttsUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://translate.google.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://dict.naver.com/',
       },
     })
 
@@ -38,7 +40,8 @@ export default {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'public, max-age=604800',
+        'X-TTS-Engine': 'naver',
       },
     })
   },

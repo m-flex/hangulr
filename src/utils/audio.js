@@ -1,7 +1,8 @@
 /**
  * Audio utilities for Hangulr.
  *
- * Korean TTS via Cloudflare Worker proxy → Google Translate TTS.
+ * Korean TTS via Cloudflare Worker proxy → Naver Dictionary TTS.
+ * Voices: kyuri (female), jinho (male).
  * Fallback: Web Speech API.
  */
 
@@ -86,19 +87,23 @@ export async function speak(text, rate = 0.75) {
   }
 
   try {
-    let blobUrl = audioCache.get(text)
+    // Map Web Speech rate (0.75 default) to Naver speed (-5 to 5, 0 = normal)
+    // rate 0.75 → speed -2 (slightly slow, good for learners)
+    // rate 1.0  → speed 0 (normal)
+    const naverSpeed = Math.round(Math.max(-5, Math.min(5, (rate - 0.75) * 8)))
+    const cacheKey = `${text}|${naverSpeed}`
+    let blobUrl = audioCache.get(cacheKey)
 
     if (!blobUrl) {
       const encoded = encodeURIComponent(text)
-      const res = await fetch(`${TTS_WORKER}/?text=${encoded}`)
+      const res = await fetch(`${TTS_WORKER}/?text=${encoded}&speed=${naverSpeed}&v=2`)
       if (!res.ok) throw new Error(`TTS returned ${res.status}`)
       const blob = await res.blob()
       blobUrl = URL.createObjectURL(blob)
-      audioCache.set(text, blobUrl)
+      audioCache.set(cacheKey, blobUrl)
     }
 
     const audio = new Audio(blobUrl)
-    audio.playbackRate = Math.max(0.5, Math.min(rate / 0.75, 2))
     currentAudio = audio
     await audio.play()
   } catch {
